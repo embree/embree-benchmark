@@ -1,0 +1,12 @@
+This repository additionally contains an OptiX version of the tutorial pathtracer application that we used for benchmarking.
+
+To run the benchmark download the crown and asian_dragon model from the following location:
+  https://github.com/embree/models/releases/download/release/crown.zip
+  https://github.com/embree/models/releases/download/release/asian_dragon.zip  
+
+Now install OptiX and compile Embree by providing the OptiX_INSTALL_DIR variable. Now you can run the benchmark:
+
+  ./pathtracer -c crown/crown.ecs -benchmark 4 16
+  ./pathtracer_ispc -c crown/crown.ecs -benchmark 4 16
+  ./pathtracer_optix -c crown/crown.ecs -benchmark 4 16
+
