@@ -91,13 +91,13 @@ def extract(name,model,prevname):
     logFile = open(logFileName, 'r')
     for line in logFile:
       if line.count('BENCHMARK_BUILD ') == 1:
-        numbers = map(float, line[(line.index('BENCHMARK_BUILD ')+16):].split(" "))
-        buildperf[base] = numbers[1]
-        sah   [base] = numbers[2]
-        memory[base] = numbers[3]
+        numbers = line[(line.index('BENCHMARK_BUILD ')+16):].split(" ")
+        buildperf[base] = float(numbers[1])
+        sah   [base] = float(numbers[2])
+        memory[base] = float(numbers[3])
       if line.count('BENCHMARK_RENDER ') == 1:
-        numbers = map(float, line[17:].split(" "))
-        fps[base] = numbers[0]
+        numbers = line[17:].split(" ")
+        fps[base] = float(numbers[0])
         if (prevname != ''):
           fpsgain[base] = 100.0*fps[base]/fps[prevBase]-100.0
   except IOError :
