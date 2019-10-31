@@ -54,8 +54,18 @@ namespace embree
   
   void init(const char* cfg) try
   {
+    /* enable RTX */
+    int rtx = 1;
+    RTresult rtxResult;
+    if ((rtxResult = rtGlobalSetAttribute(RT_GLOBAL_ATTRIBUTE_ENABLE_RTX, sizeof(rtx), &rtx)) != RT_SUCCESS)
+       std::cout << "using RTX" << std::endl;
+    else
+      std::cout << "not using RTX" << std::endl;
+   
     /* setup context */
     context = optixu::ContextObj::create();
+    std::vector<int> devices = {0}; // use only the first CUDA device!
+    context->setDevices(devices.begin(), devices.end());
     context->setRayTypeCount(2);
     context->setEntryPointCount(1);
     

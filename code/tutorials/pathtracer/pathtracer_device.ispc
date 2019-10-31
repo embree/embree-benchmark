@@ -818,6 +818,8 @@ inline Vec3f Material__sample(ISPCMaterial* uniform uniform materials, int mater
 //                               Scene                                        //
 ////////////////////////////////////////////////////////////////////////////////
 
+RTCDevice g_device = NULL;
+
 /* scene data */
 extern uniform ISPCScene* uniform g_ispc_scene;
 RTCScene g_scene = NULL;
@@ -829,31 +831,34 @@ renderPixelFunc renderPixel;
 
 /* occlusion filter function */
 #if ENABLE_OCCLUSION_FILTER == 1
-void occlusionFilterReject(void* uniform ptr, RTCRay& ray) {
+void occlusionFilterReject(void* uniform ptr, Ray& ray) {
   ray.geomID = RTC_INVALID_GEOMETRY_ID;
 }
 #endif
 
 /* error reporting function */
-unmasked void error_handler(const uniform RTCError code, const uniform int8* uniform str)
+unmasked void error_handler(void* uniform userPtr, uniform RTCError code, const uniform int8* uniform str = NULL)
 {
+  if (code == RTC_ERROR_NONE)
+    return;
+  
   print("Embree: ");
   switch (code) {
-  case RTC_UNKNOWN_ERROR    : print("RTC_UNKNOWN_ERROR"); break;
-  case RTC_INVALID_ARGUMENT : print("RTC_INVALID_ARGUMENT"); break;
-  case RTC_INVALID_OPERATION: print("RTC_INVALID_OPERATION"); break;
-  case RTC_OUT_OF_MEMORY    : print("RTC_OUT_OF_MEMORY"); break;
-  case RTC_UNSUPPORTED_CPU  : print("RTC_UNSUPPORTED_CPU"); break;
-  case RTC_CANCELLED        : print("RTC_CANCELLED"); break;
-  default                   : print("invalid error code"); break;
+  case RTC_ERROR_UNKNOWN          : print("RTC_ERROR_UNKNOWN"); break;
+  case RTC_ERROR_INVALID_ARGUMENT : print("RTC_ERROR_INVALID_ARGUMENT"); break;
+  case RTC_ERROR_INVALID_OPERATION: print("RTC_ERROR_INVALID_OPERATION"); break;
+  case RTC_ERROR_OUT_OF_MEMORY    : print("RTC_ERROR_OUT_OF_MEMORY"); break;
+  case RTC_ERROR_UNSUPPORTED_CPU  : print("RTC_ERROR_UNSUPPORTED_CPU"); break;
+  case RTC_ERROR_CANCELLED        : print("RTC_ERROR_CANCELLED"); break;
+  default                         : print("invalid error code"); break;
   }
-  if (str) { 
-    print(" ("); 
-    while (*str) putchar(*str++); 
-    print(")\n"); 
+  if (str) {
+    print(" (");
+    while (*str) putchar(*str++);
+    print(")\n");
   }
   abort();
-} // error handler
+}
 
 /* accumulation buffer */
 uniform Vec3fa* uniform g_accu = NULL;
@@ -875,11 +880,12 @@ export void device_init (uniform int8* uniform cfg)
   g_accu_vz = make_Vec3f(0.0f);
   g_accu_p  = make_Vec3f(0.0f);
 
-  /* initialize ray tracing core */
-  rtcInit(cfg);
+  /* create device */
+  g_device = rtcNewDevice(cfg);
+  error_handler(NULL,rtcGetDeviceError(g_device));
 
   /* set error handler */
-  //rtcSetErrorFunction(error_handler);
+  rtcSetDeviceErrorFunction(g_device,error_handler,NULL);
 
   /* set start render mode */
   renderPixel = renderPixelStandard;
@@ -925,28 +931,28 @@ void convertTriangleMeshes(uniform ISPCScene* uniform scene_in, RTCScene scene_o
     uniform ISPCMesh* uniform mesh = scene_in->meshes[i];
 
     /* create a triangle mesh */
-    uniform unsigned int geomID = rtcNewTriangleMesh (scene_out, RTC_GEOMETRY_STATIC, mesh->numTriangles, mesh->numVertices);
+    RTCGeometry geom = rtcNewGeometry(g_device, RTC_GEOMETRY_TYPE_TRIANGLE);
+    mesh->geometry = geom;
+    uniform unsigned int geomID = rtcAttachGeometry(scene_out, geom);
     assert(geomID < numGeometries);
     geomID_to_mesh[geomID] = mesh;
     geomID_to_type[geomID] = 0;
     
     /* set vertices */
-    uniform Vertex* uniform vertices = (uniform Vertex* uniform) rtcMapBuffer(scene_out,geomID,RTC_VERTEX_BUFFER); 
+    uniform Vertex* uniform vertices = (uniform Vertex* uniform) rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, sizeof(uniform Vertex), mesh->numVertices);
     for (uniform int j=0; j<mesh->numVertices; j++) {
       vertices[j].x = mesh->positions[j].x;
       vertices[j].y = mesh->positions[j].y;
       vertices[j].z = mesh->positions[j].z;
     }
-    rtcUnmapBuffer(scene_out,geomID,RTC_VERTEX_BUFFER); 
 
     /* set triangles */
-    uniform Triangle* uniform triangles = (uniform Triangle* uniform) rtcMapBuffer(scene_out,geomID,RTC_INDEX_BUFFER);
+    uniform Triangle* uniform triangles = (uniform Triangle* uniform) rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, sizeof(uniform Triangle), mesh->numTriangles);
     for (uniform int j=0; j<mesh->numTriangles; j++) {
       triangles[j].v0 = mesh->triangles[j].v0;
       triangles[j].v1 = mesh->triangles[j].v1;
       triangles[j].v2 = mesh->triangles[j].v2;
     }
-    rtcUnmapBuffer(scene_out,geomID,RTC_INDEX_BUFFER);
 
     uniform bool allOpaque = true;
     uniform bool allTransparent = true;
@@ -964,6 +970,7 @@ void convertTriangleMeshes(uniform ISPCScene* uniform scene_in, RTCScene scene_o
       rtcSetOcclusionFilterFunction(scene_out,geomID,(RTCFilterFuncVarying)&occlusionFilterReject);
 #endif
 
+    rtcCommitGeometry(geom);
   }
 }
 
@@ -1004,6 +1011,7 @@ task void updateEdgeLevelBufferTask( uniform ISPCSubdivMesh* uniform mesh, const
 }
 #endif
 
+/*
 void updateKeyFrame(uniform ISPCScene* uniform scene_in)
 {
   for (uniform size_t g=0; g<scene_in->numSubdivMeshes; g++)
@@ -1025,7 +1033,7 @@ void updateKeyFrame(uniform ISPCScene* uniform scene_in)
     keyframeID = 0;
 
 }
-
+*/
 
 void updateEdgeLevels(uniform ISPCScene* uniform scene_in, const uniform Vec3fa& cam_pos)
 {
@@ -1038,7 +1046,8 @@ void updateEdgeLevels(uniform ISPCScene* uniform scene_in, const uniform Vec3fa&
 #else
       updateEdgeLevelBuffer(mesh,cam_pos,0,mesh->numFaces);
 #endif
-   rtcUpdateBuffer(g_scene,geomID,RTC_LEVEL_BUFFER);    
+    rtcUpdateGeometryBuffer(mesh->geometry,RTC_BUFFER_TYPE_LEVEL,0);
+    rtcCommitGeometry(mesh->geometry);
   }
 }
 
@@ -1049,26 +1058,31 @@ void convertSubdivMeshes(uniform ISPCScene* uniform scene_in, RTCScene scene_out
   for (uniform size_t i=0; i<g_ispc_scene->numSubdivMeshes; i++)
   {
     uniform ISPCSubdivMesh* uniform mesh = g_ispc_scene->subdiv[i];
-    uniform unsigned int geomID = rtcNewSubdivisionMesh(scene_out, RTC_GEOMETRY_DYNAMIC, mesh->numFaces, mesh->numEdges, mesh->numVertices, 
-						mesh->numEdgeCreases, mesh->numVertexCreases, mesh->numHoles);
+    //uniform unsigned int geomID = rtcNewSubdivisionMesh(scene_out, RTC_GEOMETRY_DYNAMIC, mesh->numFaces, mesh->numEdges, mesh->numVertices, 
+		//				mesh->numEdgeCreases, mesh->numVertexCreases, mesh->numHoles);
+    RTCGeometry geom = rtcNewGeometry(g_device, RTC_GEOMETRY_TYPE_SUBDIVISION);
+    mesh->geometry = geom;
+    uniform unsigned int geomID = rtcAttachGeometry(scene_out, geom);
     mesh->geomID = geomID;												
     assert(geomID < numGeometries);
     geomID_to_mesh[geomID] = mesh;
     geomID_to_type[geomID] = 1; //2
 
     for (size_t i=0; i<mesh->numEdges; i++) mesh->subdivlevel[i] = FIXED_EDGE_TESSELLATION_VALUE;
-    rtcSetBuffer(scene_out, geomID, RTC_VERTEX_BUFFER, mesh->positions, 0, sizeof(uniform Vec3fa  ));
-    rtcSetBuffer(scene_out, geomID, RTC_LEVEL_BUFFER,  mesh->subdivlevel, 0, sizeof(uniform float));
-    rtcSetBuffer(scene_out, geomID, RTC_INDEX_BUFFER,  mesh->position_indices  , 0, sizeof(uniform unsigned int));
-    rtcSetBuffer(scene_out, geomID, RTC_FACE_BUFFER,   mesh->verticesPerFace, 0, sizeof(uniform unsigned int));
-    rtcSetBuffer(scene_out, geomID, RTC_HOLE_BUFFER,   mesh->holes, 0, sizeof(uniform unsigned int));
-    rtcSetBuffer(scene_out, geomID, RTC_EDGE_CREASE_INDEX_BUFFER,    mesh->edge_creases,          0, 2*sizeof(uniform unsigned int));
-    rtcSetBuffer(scene_out, geomID, RTC_EDGE_CREASE_WEIGHT_BUFFER,   mesh->edge_crease_weights,   0, sizeof(uniform float));
-    rtcSetBuffer(scene_out, geomID, RTC_VERTEX_CREASE_INDEX_BUFFER,  mesh->vertex_creases,        0, sizeof(uniform unsigned int));
-    rtcSetBuffer(scene_out, geomID, RTC_VERTEX_CREASE_WEIGHT_BUFFER, mesh->vertex_crease_weights, 0, sizeof(uniform float));
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, mesh->positions, 0, sizeof(uniform Vec3fa), mesh->numVertices);
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_LEVEL, 0, RTC_FORMAT_FLOAT, mesh->subdivlevel, 0, sizeof(uniform float), mesh->numEdges);
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT, mesh->position_indices, 0, sizeof(uniform unsigned int), mesh->numEdges);
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_FACE, 0, RTC_FORMAT_UINT, mesh->verticesPerFace, 0, sizeof(uniform unsigned int), mesh->numFaces);
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_HOLE, 0, RTC_FORMAT_UINT, mesh->holes, 0, sizeof(uniform unsigned int), mesh->numHoles);
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_EDGE_CREASE_INDEX, 0, RTC_FORMAT_UINT2, mesh->edge_creases, 0, 2*sizeof(uniform unsigned int), mesh->numEdgeCreases);
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_EDGE_CREASE_WEIGHT, 0, RTC_FORMAT_FLOAT, mesh->edge_crease_weights, 0, sizeof(uniform float), mesh->numEdgeCreases);
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX_CREASE_INDEX, 0, RTC_FORMAT_UINT, mesh->vertex_creases, 0, sizeof(uniform unsigned int), mesh->numVertexCreases);
+    rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX_CREASE_WEIGHT, 0, RTC_FORMAT_FLOAT, mesh->vertex_crease_weights, 0, sizeof(uniform float), mesh->numVertexCreases);
 #if ENABLE_DISPLACEMENTS == 1
       rtcSetDisplacementFunction(scene_out,geomID,(RTCDisplacementFunc)&displacementFunction,NULL);
 #endif
+
+    rtcCommitGeometry(geom);
   }
 }      
 
@@ -1085,12 +1099,13 @@ RTCScene convertScene(uniform ISPCScene* uniform scene_in,const uniform Vec3fa& 
   geomID_to_type = uniform new uniform int[numGeometries];
 
   /* create scene */
-  uniform int scene_flags = RTC_SCENE_STATIC | RTC_SCENE_INCOHERENT;
+  uniform RTCSceneFlags scene_flags = RTC_SCENE_FLAG_NONE;
 
   if (g_subdiv_mode)   
-    scene_flags = RTC_SCENE_DYNAMIC | RTC_SCENE_INCOHERENT | RTC_SCENE_ROBUST;
+    scene_flags = RTC_SCENE_FLAG_DYNAMIC | RTC_SCENE_FLAG_ROBUST;
 
-  RTCScene scene_out = rtcNewScene((RTCSceneFlags)scene_flags, RTC_INTERSECT_UNIFORM | RTC_INTERSECT_VARYING);
+  RTCScene scene_out = rtcNewScene(g_device);
+  rtcSetSceneFlags(scene_out, scene_flags);
   convertTriangleMeshes(scene_in,scene_out,numGeometries);
   convertSubdivMeshes(scene_in,scene_out,numGeometries,cam_org);
 
@@ -1098,7 +1113,7 @@ RTCScene convertScene(uniform ISPCScene* uniform scene_in,const uniform Vec3fa& 
   /* commit changes to scene */
   //progressStart();
   //rtcSetProgressMonitorFunction(scene_out,progressMonitor,NULL);
-  rtcCommit (scene_out);
+  rtcCommitScene (scene_out);
   //rtcSetProgressMonitorFunction(scene_out,NULL,NULL);
   //progressEnd();
 
@@ -1149,7 +1164,7 @@ inline Vec3f face_forward(const Vec3f& dir, const Vec3f& _Ng) {
 }
 
 #if 0
-inline Vec3f interpolate_normal(RTCRay& ray)
+inline Vec3f interpolate_normal(Ray& ray)
 {
 #if 0 // FIXME: pointer gather not implemented on ISPC for Xeon Phi
   uniform ISPCMesh* varying mesh = g_ispc_scene->meshes[ray.geomID];
@@ -1206,7 +1221,7 @@ inline Vec3f interpolate_normal(RTCRay& ray)
 
 #if !defined(CODE_DISABLED)
 #if 0 // FIXME: pointer gather not implemented in ISPC for Xeon Phi
-inline int getMaterialID(const RTCRay& ray, DifferentialGeometry& dg)
+inline int getMaterialID(const Ray& ray, DifferentialGeometry& dg)
 {
   int materialID = 0;
   if (geomID_to_type[ray.geomID] == 0)
@@ -1226,7 +1241,7 @@ inline int getMaterialID(const RTCRay& ray, DifferentialGeometry& dg)
   return materialID;
 }
 #else 
-inline int getMaterialID(const RTCRay& ray, DifferentialGeometry dg)
+inline int getMaterialID(const Ray& ray, DifferentialGeometry dg)
 {
   int materialID = 0;
   foreach_unique (geomID in ray.geomID) {
@@ -1261,7 +1276,7 @@ Vec3f renderPixelFunction(float x, float y, rand_state& state, const uniform Vec
   Medium medium = make_Medium_Vacuum();
 
   /* initialize ray */
-  RTCRay ray = make_Ray(p,normalize(x*vx + y*vy + vz),0.0f,inf);
+  Ray ray = make_Ray(p,normalize(x*vx + y*vy + vz),0.0f,inf);
 
   /* iterative path tracer loop */
   for (uniform int i=0; i<MAX_PATH_LENGTH; i++)
@@ -1271,7 +1286,11 @@ Vec3f renderPixelFunction(float x, float y, rand_state& state, const uniform Vec
       break;
 
     /* intersect ray with scene */ 
-    COUNT_RAYS(numRays++); rtcIntersect(g_scene,ray);
+    COUNT_RAYS(numRays++);
+    uniform IntersectContext context;
+    InitIntersectionContext(&context);
+    context.context.flags = (i == 0) ? RTC_INTERSECT_CONTEXT_FLAG_COHERENT : RTC_INTERSECT_CONTEXT_FLAG_INCOHERENT;
+    rtcIntersectV(g_scene,&context.context,RTCRayHit_(ray));
     const Vec3f wo = neg(ray.dir);
     
     /* invoke environment lights if nothing hit */
@@ -1328,6 +1347,7 @@ Vec3f renderPixelFunction(float x, float y, rand_state& state, const uniform Vec
 
     
     /* iterate over ambient lights */
+    context.context.flags = RTC_INTERSECT_CONTEXT_FLAG_INCOHERENT;
     for (uniform size_t i=0; i<g_ispc_scene->numAmbientLights; i++)
     {
 #if 1
@@ -1336,9 +1356,10 @@ Vec3f renderPixelFunction(float x, float y, rand_state& state, const uniform Vec
       Vec3f Ll0 = AmbientLight__sample(g_ispc_scene->ambientLights[i],dg,wi0,tMax0,frand2(state));
 
       if (wi0.pdf > 0.0f) {
-        RTCRay shadow = make_Ray(dg.P,wi0.v,0.001f,tMax0);
-        COUNT_RAYS(numRays++); rtcOccluded(g_scene,shadow);
-        if (shadow.geomID == RTC_INVALID_GEOMETRY_ID) {
+        Ray shadow = make_Ray(dg.P,wi0.v,0.001f,tMax0);
+        COUNT_RAYS(numRays++);
+        rtcOccludedV(g_scene,&context.context,RTCRay_(shadow));
+        if (shadow.tfar >= 0.f) {
           L0 = Ll0/wi0.pdf*Material__eval(material_array,materialID,numMaterials,brdf,wo,dg,wi0.v);
         }
 
@@ -1350,9 +1371,10 @@ Vec3f renderPixelFunction(float x, float y, rand_state& state, const uniform Vec
       Vec3f L1 = make_Vec3f(0.0f);
       Vec3f Ll1 = AmbientLight__eval(g_ispc_scene->ambientLights[i],wi1.v);
       if (wi1.pdf > 0.0f) {
-        RTCRay shadow = make_Ray(dg.P,wi1.v,0.001f,inf);
-        COUNT_RAYS(numRays++); rtcOccluded(g_scene,shadow);
-        if (shadow.geomID == RTC_INVALID_GEOMETRY_ID) {
+        Ray shadow = make_Ray(dg.P,wi1.v,0.001f,inf);
+        COUNT_RAYS(numRays++);
+        rtcOccludedV(g_scene,&context.context,RTCRay_(shadow));
+        if (shadow.tfar >= 0.f) {
           L1 = Ll1/wi1.pdf*c;
         }
         L = L + Lw*L1;
@@ -1377,9 +1399,10 @@ Vec3f renderPixelFunction(float x, float y, rand_state& state, const uniform Vec
     {
       Vec3f Ll = PointLight__sample(g_ispc_scene->pointLights[i],dg,wi,tMax,frand2(state));
       if (wi.pdf <= 0.0f) continue;
-      RTCRay shadow = make_Ray(dg.P,wi.v,0.001f,tMax);
-      COUNT_RAYS(numRays++); rtcOccluded(g_scene,shadow);
-      if (shadow.geomID != RTC_INVALID_GEOMETRY_ID) continue;
+      Ray shadow = make_Ray(dg.P,wi.v,0.001f,tMax);
+      COUNT_RAYS(numRays++);
+      rtcOccludedV(g_scene,&context.context,RTCRay_(shadow));
+      if (shadow.tfar < 0.f) continue;
       L = L + Lw*Ll/wi.pdf*Material__eval(material_array,materialID,numMaterials,brdf,wo,dg,wi.v); // FIXME: +=
     }
 
@@ -1388,9 +1411,10 @@ Vec3f renderPixelFunction(float x, float y, rand_state& state, const uniform Vec
     {
       Vec3f Ll = DirectionalLight__sample(g_ispc_scene->dirLights[i],dg,wi,tMax,frand2(state));
       if (wi.pdf <= 0.0f) continue;
-      RTCRay shadow = make_Ray(dg.P,wi.v,0.001f,tMax);
-      COUNT_RAYS(numRays++); rtcOccluded(g_scene,shadow);
-      if (shadow.geomID != RTC_INVALID_GEOMETRY_ID) continue;
+      Ray shadow = make_Ray(dg.P,wi.v,0.001f,tMax);
+      COUNT_RAYS(numRays++);
+      rtcOccludedV(g_scene,&context.context,RTCRay_(shadow));
+      if (shadow.tfar < 0.f) continue;
       L = L + Lw*Ll/wi.pdf*Material__eval(material_array,materialID,numMaterials,brdf,wo,dg,wi.v); // FIXME: +=
     }
 
@@ -1400,9 +1424,10 @@ Vec3f renderPixelFunction(float x, float y, rand_state& state, const uniform Vec
       Vec3f Ll = DistantLight__sample(g_ispc_scene->distantLights[i],dg,wi,tMax,frand2(state));
 
       if (wi.pdf <= 0.0f) continue;
-      RTCRay shadow = make_Ray(dg.P,wi.v,0.001f,tMax);
-      COUNT_RAYS(numRays++); rtcOccluded(g_scene,shadow);
-      if (shadow.geomID != RTC_INVALID_GEOMETRY_ID) continue;
+      Ray shadow = make_Ray(dg.P,wi.v,0.001f,tMax);
+      COUNT_RAYS(numRays++);
+      rtcOccludedV(g_scene,&context.context,RTCRay_(shadow));
+      if (shadow.tfar < 0.f) continue;
       L = L + Lw*Ll/wi.pdf*Material__eval(material_array,materialID,numMaterials,brdf,wo,dg,wi.v); // FIXME: +=
     }
     if (wi1.pdf <= 1E-4f /* 0.0f */) break;
@@ -1517,8 +1542,8 @@ export void device_render (uniform int* uniform pixels,
 
   if (g_ispc_scene->numSubdivMeshKeyFrames)
     {
-      updateKeyFrame(g_ispc_scene);
-      rtcCommit(g_scene);
+      //updateKeyFrame(g_ispc_scene);
+      rtcCommitScene(g_scene);
       g_changed = true;
     }
 
@@ -1534,7 +1559,7 @@ export void device_render (uniform int* uniform pixels,
     if (g_subdiv_mode)
       {
        updateEdgeLevels(g_ispc_scene, cam_org);
-       rtcCommit (g_scene);
+       rtcCommitScene (g_scene);
       }
 #endif
 
@@ -1552,8 +1577,8 @@ export void device_render (uniform int* uniform pixels,
 export void device_cleanup ()
 {
   delete[] g_accu;
-  rtcDeleteScene (g_scene);
-  rtcExit();
+  rtcReleaseScene (g_scene);
+  rtcReleaseDevice (g_device);
 } // device_cleanup
 
 #endif

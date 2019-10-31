@@ -26,6 +26,10 @@ namespace embree
   Ref<Image> loadImageFromDisk(const FileName& fileName)
   {
     std::string ext = strlwr(fileName.ext());
+#ifdef USE_OPENEXR
+    if (ext == "exr" ) return loadExr(fileName);
+#endif
+
 #ifdef USE_LIBPNG
     if (ext == "png" ) return loadPNG(fileName);
 #endif

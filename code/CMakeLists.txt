@@ -245,8 +245,8 @@ SET(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 # Directories to compile
 ##############################################################
 
-FIND_PATH(EMBREE_INCLUDE_DIR embree2/rtcore.h ${PROJECT_SOURCE_DIR}/../embree/include)
-FIND_LIBRARY(EMBREE_LIBRARY embree ${PROJECT_SOURCE_DIR}/../embree/build)
+FIND_PATH(EMBREE_INCLUDE_DIR embree3/rtcore.h ${PROJECT_SOURCE_DIR}/../embree/include)
+FIND_LIBRARY(EMBREE_LIBRARY embree3 ${PROJECT_SOURCE_DIR}/../embree/build)
 FIND_LIBRARY(EMBREE_LIBRARY_XEONPHI embree_xeonphi ${PROJECT_SOURCE_DIR}/../embree/build)
 
 INCLUDE_DIRECTORIES("${EMBREE_INCLUDE_DIR}")

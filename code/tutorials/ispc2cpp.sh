@@ -63,7 +63,10 @@ sed -i.backup  's/ISPCMaterial\* material = \&materials\[id\];/ISPCMaterial\* ma
 sed -i.backup  's/\#define __device__//g' $2
 sed -i.backup  's/__device__//g' $2
 
-sed -i.backup  's/make_Ray/RTCRay/g' $2
+sed -i.backup  's/make_Ray/Ray/g' $2
+
+sed -i.backup  's/rtcIntersectV/rtcIntersect1/g' $2
+sed -i.backup  's/rtcOccludedV/rtcOccluded1/g' $2
 
 sed -i.backup 's/\#define PARALLEL_COMMIT//g' $2
 sed -i.backup 's/atomic_compare_exchange_global/atomic_cmpxchg/g' $2 

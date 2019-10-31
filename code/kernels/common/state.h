@@ -93,7 +93,7 @@ namespace embree
     static MutexSys g_errors_mutex;
 
   public:
-    RTCErrorFunc g_error_function;
-    RTCMemoryMonitorFunc g_memory_monitor_function;
+    RTCErrorFunction g_error_function;
+    RTCMemoryMonitorFunction g_memory_monitor_function;
   };
 }

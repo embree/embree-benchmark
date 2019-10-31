@@ -52,7 +52,7 @@ def render(name,model):
     command += ' -c ' + modelDir + dash + model + dash + model + '.ecs'
     for arg in args:
       command += ' ' + arg
-    command += ' -rtcore verbose=2 -benchmark 8 16 > ' + logFile
+    command += ' -rtcore verbose=2 -benchmark 32 128 > ' + logFile
     os.system(command)
 
 def renderLoop():

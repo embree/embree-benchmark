@@ -11,7 +11,7 @@ sed -i.backup  's/\#include \"\.\.\/common\/tutorial\/tutorial_device.isph\"//g'
 sed -i.backup  's/\#include \"\.\.\/common\/tutorial\/scene_device.isph\"/\#include \"\.\.\/common\/tutorial\/scene_device.cu.h\"/g' $2
 sed -i.backup  's/\#include \"shapesampler.isph\"/\#include \"shapesampler.cu.h\"/g' $2
 sed -i.backup  's/\#include \"optics.isph\"/\#include \"optics.cu.h\"/g' $2
-sed -i.backup  's/RTCRay/optix::Ray/g' $2
+sed -i.backup  's/Ray/optix::Ray/g' $2
 
 sed -i.backup  's/inline/__device__ inline/g' $2
 sed -i.backup  's/Vec3fa/float4/g' $2

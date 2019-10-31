@@ -61,6 +61,7 @@ struct ISPCMesh
   int numVertices;
   int numTriangles;
   int numQuads;
+  RTCGeometry geometry;
   int geomID;
   int meshMaterialID;
 };
@@ -88,6 +89,7 @@ struct ISPCSubdivMesh
   int numVertexCreases;
   int numHoles;
   int materialID;
+  RTCGeometry geometry;
   int geomID;
   Vec3fa* colors; // FIXME: remove
 };

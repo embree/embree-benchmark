@@ -53,7 +53,7 @@
 #include "isa.h"
 #include "stat.h"
 #include "profile.h"
-#include "rtcore.h"
+#include "embree3/rtcore.h"
 #include "vector.h"
 #include "state.h"
 
